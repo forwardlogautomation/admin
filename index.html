@@ -398,63 +398,83 @@ function modeOf(portal) {
     all = s.filter(function (x) { return x.portal === 'all' && x.key === 'accessMode'; })[0];
   return ((own && own.value) || (all && all.value) || 'domain').toLowerCase();
 }
+function accessOf(email) {
+  return A.data.access.filter(function (x) { return x.email === email; })[0] || { email: email, presales: '', progress: '', sortcheck: '', extraPw: false, pwSet: false, note: '' };
+}
+function saveRole(email, portal, role) {
+  var a = accessOf(email), rec = { email: email, note: a.note, extraPw: a.extraPw };
+  A.data.portals.forEach(function (p) { rec[p] = p === portal ? role : (a[p] || ''); });
+  var empty = A.data.portals.every(function (p) { return !rec[p]; }) && !a.extraPw;
+  return empty && a.updated ? api('deleteAccess', [email]) : api('saveAccess', [rec]);
+}
 function renderAccess() {
-  var d = A.data;
-  var h = '<div class="card"><h3>Who can use each portal</h3><p class="muted sm">By default anyone with an @forwardlogauto.com Google account can use a portal. Switch a portal to <b>Listed only</b> to allow just the people marked Allowed or Admin below.</p><div class="modes">' +
-    d.portals.map(function (p) { var m = modeOf(p); return '<div class="mode"><b>' + PORTAL_NAME[p] + '</b><div class="seg sm" data-p="' + p + '"><button data-m="domain"' + (m !== 'listed' ? ' class="on"' : '') + '>Whole company</button><button data-m="listed"' + (m === 'listed' ? ' class="on"' : '') + '>Listed only</button></div></div>'; }).join('') +
-    '</div></div>';
-  h += '<div class="card"><div class="rowhead"><h3>People</h3><button class="btn sm" id="addp">+ Add person</button></div>';
-  if (!d.access.length) h += '<p class="muted sm">No one is listed yet. Everyone in the company has the default access.</p>';
-  h += d.access.map(function (a, i) {
-    var roles = d.portals.map(function (p) { var r = a[p] || ''; return '<span class="chip ' + ({ allow: 'ok', admin: 'brand', block: 'bad' }[r] || '') + '">' + PORTAL_NAME[p] + ': ' + (r ? ROLE_OPTS.filter(function (o) { return o[0] === r; })[0][1] : 'Default') + '</span>'; }).join('');
-    var pw = a.extraPw ? (a.pwSet ? '<span class="chip warn">Extra password on</span>' : '<span class="chip bad">Extra password not set</span>') : '';
-    return '<div class="person" data-i="' + i + '"><div class="pmain"><b>' + esc(a.email) + '</b>' + (a.note ? ' <span class="muted sm">' + esc(a.note) + '</span>' : '') + '<div class="chips">' + roles + pw + '</div><div class="muted xs">Updated ' + esc(ago(a.updated)) + (a.updatedBy ? ' by ' + esc(a.updatedBy) : '') + '</div></div><button class="btn sm sec ed">Edit</button></div>';
+  var d = A.data, P = A.ptab = A.ptab || ls('ad_ptab') || d.portals[0], m = modeOf(P);
+  var h = '<div class="seg ptabs" style="margin:0 0 12px">' + d.portals.map(function (p) { return '<button data-p="' + p + '"' + (p === P ? ' class="on"' : '') + '>' + PORTAL_NAME[p] + '</button>'; }).join('') + '</div>';
+  h += '<div class="card"><h3>' + PORTAL_NAME[P] + ': who can open it</h3><div class="seg sm" id="mode"><button data-m="domain"' + (m !== 'listed' ? ' class="on"' : '') + '>Whole company</button><button data-m="listed"' + (m === 'listed' ? ' class="on"' : '') + '>Listed people only</button></div>' +
+    '<p class="muted sm" style="margin:8px 0 0">' + (m === 'listed' ? 'Only the people on ' + PORTAL_NAME[P] + '\'s list below can open it.' : 'Anyone with an @forwardlogauto.com account can open it, except people marked Blocked below.') + '</p></div>';
+  var rows = d.access.filter(function (x) { return x[P]; });
+  var order = { admin: 0, allow: 1, block: 2 };
+  rows.sort(function (x, y) { return (order[x[P]] - order[y[P]]) || x.email.localeCompare(y.email); });
+  h += '<div class="card"><div class="rowhead"><h3>' + PORTAL_NAME[P] + ' list <span class="muted sm">(' + rows.length + ')</span></h3><button class="btn sm" id="addp">+ Add to ' + PORTAL_NAME[P] + '</button></div>';
+  if (!rows.length) h += '<p class="muted sm">' + (m === 'listed' ? 'Nobody is on this list yet, so nobody can open ' + PORTAL_NAME[P] + '. Add people before switching to Listed only.' : 'Nobody listed. Everyone in the company can open it.') + '</p>';
+  h += rows.map(function (a) {
+    var r = a[P], chip = '<span class="chip ' + ({ allow: 'ok', admin: 'brand', block: 'bad' }[r]) + '">' + ({ allow: 'Allowed', admin: 'Admin', block: 'Blocked' }[r]) + '</span>';
+    var pw = a.extraPw ? (a.pwSet ? ' <span class="chip warn">Extra password</span>' : ' <span class="chip bad">Password not set</span>') : '';
+    return '<div class="person" data-e="' + esc(a.email) + '"><div class="pmain"><b>' + esc(a.email) + '</b>' + (a.note ? ' <span class="muted sm">' + esc(a.note) + '</span>' : '') + '<div class="chips">' + chip + pw + '</div></div>' +
+      '<select class="rolesel" style="width:auto;flex:0 0 auto;font-size:14px;padding:7px 8px"><option value="allow"' + (r === 'allow' ? ' selected' : '') + '>Allowed</option><option value="admin"' + (r === 'admin' ? ' selected' : '') + '>Admin</option><option value="block"' + (r === 'block' ? ' selected' : '') + '>Blocked</option><option value="">Remove from list</option></select></div>';
   }).join('');
   h += '</div>';
+  var pwRows = d.access.filter(function (x) { return x.extraPw; });
+  h += '<div class="card"><div class="rowhead"><h3>Extra password <span class="muted sm">(all portals)</span></h3><button class="btn sm sec" id="addpw">+ Add account</button></div><p class="muted sm">These accounts must type an extra password after Google sign-in, on every portal they open, once per browser tab.</p>' +
+    (pwRows.length ? pwRows.map(function (a) { return '<div class="person" data-e="' + esc(a.email) + '"><div class="pmain"><b>' + esc(a.email) + '</b><div class="chips">' + (a.pwSet ? '<span class="chip warn">Password set</span>' : '<span class="chip bad">Password not set</span>') + '</div></div><button class="btn sm sec pwed">Change</button></div>'; }).join('') : '<p class="muted sm">None.</p>') + '</div>';
   $('#pane').innerHTML = h;
-  $$('.modes .seg').forEach(function (g) {
-    $$('button', g).forEach(function (b) {
-      b.onclick = function () {
-        if (b.classList.contains('on')) return;
-        var p = g.dataset.p, m = b.dataset.m;
-        if (m === 'listed' && !confirm('Only people marked Allowed or Admin will be able to open ' + PORTAL_NAME[p] + '. Continue?')) return;
-        api('saveSetting', [{ portal: p, key: 'accessMode', value: m, note: 'Set from Access tab' }]).then(function () { reload(PORTAL_NAME[p] + ': ' + (m === 'listed' ? 'listed people only' : 'whole company')); }).catch(fail);
-      };
-    });
+  $$('.ptabs button').forEach(function (b) { b.onclick = function () { A.ptab = b.dataset.p; ls('ad_ptab', A.ptab); renderAccess(); }; });
+  $$('#mode button').forEach(function (b) {
+    b.onclick = function () {
+      if (b.classList.contains('on')) return;
+      var nm = b.dataset.m;
+      if (nm === 'listed' && !confirm('Only the people on ' + PORTAL_NAME[P] + '\'s list (Allowed or Admin) will be able to open it. Continue?')) return;
+      api('saveSetting', [{ portal: P, key: 'accessMode', value: nm, note: 'Set from Access tab' }]).then(function () { reload(PORTAL_NAME[P] + ': ' + (nm === 'listed' ? 'listed people only' : 'whole company')); }).catch(fail);
+    };
   });
-  $('#addp').onclick = function () { editPerson(null); };
-  $$('.person .ed').forEach(function (b) { b.onclick = function () { editPerson(A.data.access[+b.closest('.person').dataset.i]); }; });
-}
-function editPerson(a) {
-  var isNew = !a; a = a || { email: '', presales: '', progress: '', sortcheck: '', extraPw: false, pwSet: false, note: '' };
-  var o = openSheet('<h3>' + (isNew ? 'Add person' : esc(a.email)) + '</h3>' +
-    (isNew ? '<label>Email</label><input id="e_email" type="email" placeholder="name@forwardlogauto.com">' : '') +
-    A.data.portals.map(function (p) { return '<label>' + PORTAL_NAME[p] + '</label>' + sel('e_' + p, ROLE_OPTS, a[p]); }).join('') +
-    '<label class="toggle" style="margin-top:14px"><input type="checkbox" id="e_xpw"' + (a.extraPw ? ' checked' : '') + '> Ask for an extra password after Google sign-in</label>' +
-    '<div id="pwbox"></div>' +
-    '<label>Note</label><input id="e_note" value="' + esc(a.note) + '" placeholder="e.g. Shared support account">' +
-    '<div class="btns">' + (isNew ? '' : '<button class="btn sec bad" id="del">Remove</button>') + '<button class="btn sec" id="cx">Cancel</button><button class="btn" id="go">Save</button></div>');
-  function pwUi() {
-    var on = $('#e_xpw', o).checked;
-    $('#pwbox', o).innerHTML = on ? '<label>' + (a.pwSet ? 'New password (leave blank to keep the current one)' : 'Password (at least 8 characters)') + '</label><input type="password" id="e_pw" autocomplete="new-password"><p class="muted xs" style="margin:6px 0 0">Asked once per browser tab on every portal this account opens. Stored only as a scrambled hash.</p>' : '';
+  $$('.rolesel').forEach(function (s) {
+    s.onchange = function () {
+      var e = s.closest('.person').dataset.e, v = s.value;
+      if (!v && !confirm('Remove ' + e + ' from the ' + PORTAL_NAME[P] + ' list?')) { renderAccess(); return; }
+      saveRole(e, P, v).then(function () { reload(v ? 'Updated' : 'Removed from ' + PORTAL_NAME[P]); }).catch(fail);
+    };
+  });
+  $('#addp').onclick = function () {
+    var o = openSheet('<h3>Add to ' + PORTAL_NAME[P] + '</h3><label>Email</label><input id="e_email" type="email" placeholder="name@forwardlogauto.com"><label>Access</label>' + sel('e_role', [['allow', 'Allowed'], ['admin', 'Admin'], ['block', 'Blocked']], 'allow') +
+      '<p class="muted xs" style="margin:8px 0 0">Only changes ' + PORTAL_NAME[P] + '. Other portals keep their own lists.</p><div class="btns"><button class="btn sec" id="cx">Cancel</button><button class="btn" id="go">Add</button></div>');
+    $('#cx', o).onclick = function () { o.close(); };
+    $('#go', o).onclick = function () {
+      var e = $('#e_email', o).value.trim().toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) { toast('Enter a valid email', true); return; }
+      busy($('#go', o), saveRole(e, P, $('#e_role', o).value)).then(function () { o.close(); reload('Added to ' + PORTAL_NAME[P]); }).catch(fail);
+    };
+  };
+  function editPw(email) {
+    var a = email ? accessOf(email) : null;
+    var o = openSheet('<h3>' + (a ? esc(a.email) : 'Extra password') + '</h3>' + (a ? '' : '<label>Email</label><input id="e_email" type="email" placeholder="name@forwardlogauto.com">') +
+      '<label>' + (a && a.pwSet ? 'New password' : 'Password') + ' (at least 8 characters)</label><input type="password" id="e_pw" autocomplete="new-password"><p class="muted xs" style="margin:6px 0 0">Stored only as a scrambled hash. Applies on every portal.</p>' +
+      '<div class="btns">' + (a ? '<button class="btn sec bad" id="off">Turn off</button>' : '') + '<button class="btn sec" id="cx">Cancel</button><button class="btn" id="go">Save</button></div>');
+    $('#cx', o).onclick = function () { o.close(); };
+    if (a) $('#off', o).onclick = function () {
+      if (!confirm('Stop asking ' + a.email + ' for an extra password?')) return;
+      busy($('#off', o), api('clearPassword', [a.email])).then(function () { o.close(); reload('Extra password off'); }).catch(fail);
+    };
+    $('#go', o).onclick = function () {
+      var e = a ? a.email : $('#e_email', o).value.trim().toLowerCase(), pw = $('#e_pw', o).value;
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) { toast('Enter a valid email', true); return; }
+      if (pw.length < 8) { toast('Use at least 8 characters', true); return; }
+      var cur = accessOf(e), rec = { email: e, note: cur.note, extraPw: true };
+      A.data.portals.forEach(function (p) { rec[p] = cur[p] || ''; });
+      busy($('#go', o), api('saveAccess', [rec]).then(function () { return api('setPassword', [e, pw]); })).then(function () { o.close(); reload('Password saved'); }).catch(fail);
+    };
   }
-  $('#e_xpw', o).onchange = pwUi; pwUi();
-  $('#cx', o).onclick = function () { o.close(); };
-  if (!isNew) $('#del', o).onclick = function () {
-    if (!confirm('Remove ' + a.email + ' from the list? They go back to default access and any extra password is removed.')) return;
-    api('deleteAccess', [a.email]).then(function () { o.close(); reload('Removed'); }).catch(fail);
-  };
-  $('#go', o).onclick = function () {
-    var email = isNew ? $('#e_email', o).value.trim() : a.email, xp = $('#e_xpw', o).checked, pwI = $('#e_pw', o), pw = pwI ? pwI.value : '';
-    if (xp && !a.pwSet && pw.length < 8) { toast('Set a password of at least 8 characters', true); return; }
-    if (pw && pw.length < 8) { toast('Use at least 8 characters', true); return; }
-    var rec = { email: email, note: $('#e_note', o).value, extraPw: xp };
-    A.data.portals.forEach(function (p) { rec[p] = $('#e_' + p, o).value; });
-    busy($('#go', o), api('saveAccess', [rec]).then(function () {
-      if (xp && pw) return api('setPassword', [email, pw]);
-      if (!xp && a.pwSet) return api('clearPassword', [email]);
-    })).then(function () { o.close(); reload('Saved'); }).catch(fail);
-  };
+  $('#addpw').onclick = function () { editPw(null); };
+  $$('.pwed').forEach(function (b) { b.onclick = function () { editPw(b.closest('.person').dataset.e); }; });
 }
 
 /* ---------- Settings ---------- */
