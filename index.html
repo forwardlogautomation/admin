@@ -346,7 +346,7 @@ function openSheet(html, onClose) {
 <script>
 /* ===== Forwardlog Admin - page logic ===== */
 var A = { data: null, tab: ls('ad_tab') || 'access' };
-var PORTAL_NAME = { presales: 'Presales', progress: 'Progress', sortcheck: 'SortCheck', all: 'All portals' };
+var PORTAL_NAME = { presales: 'Presales', progress: 'Progress', sortcheck: 'SortCheck', 'solution-calc': 'Solution Calc', all: 'All portals' };
 var ROLE_OPTS = [['', 'Default'], ['allow', 'Allowed'], ['admin', 'Admin'], ['block', 'Blocked']];
 var KNOWN_SETTINGS = [
   ['all', 'accessMode', 'Who can use the portal: "domain" = anyone @forwardlogauto.com (default), "listed" = only people marked Allowed or Admin. Can also be set per portal.'],
@@ -399,7 +399,7 @@ function modeOf(portal) {
   return ((own && own.value) || (all && all.value) || 'domain').toLowerCase();
 }
 function accessOf(email) {
-  return A.data.access.filter(function (x) { return x.email === email; })[0] || { email: email, presales: '', progress: '', sortcheck: '', extraPw: false, pwSet: false, note: '' };
+  return A.data.access.filter(function (x) { return x.email === email; })[0] || { email: email, presales: '', progress: '', sortcheck: '', 'solution-calc': '', extraPw: false, pwSet: false, note: '' };
 }
 function saveRole(email, portal, role) {
   var a = accessOf(email), rec = { email: email, note: a.note, extraPw: a.extraPw };
